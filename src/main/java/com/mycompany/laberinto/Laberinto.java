@@ -1,22 +1,40 @@
-/*
- * Click nbfs://nbhost/SystemFileSystem/Templates/Licenses/license-default.txt to change this license
- */
-
 package com.mycompany.laberinto;
-import javax.swing.*;
-import java.awt.*;
+
+import java.awt.BorderLayout;
+import java.awt.Color;
+import java.awt.Font;
+import java.awt.Graphics;
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.Random;
 import java.util.Scanner;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import javax.sound.sampled.AudioInputStream;
 import javax.sound.sampled.AudioSystem;
 import javax.sound.sampled.Clip;
 import javax.sound.sampled.FloatControl;
 import javax.swing.ImageIcon;
+import javax.swing.JButton;
+import javax.swing.JFrame;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.SwingUtilities;
+
+/*
+ * Click nbfs://nbhost/SystemFileSystem/Templates/Licenses/license-default.txt to change this license
+ * Click nbfs://nbhost/SystemFileSystem/Templates/Classes/Class.java to edit this template
+ */
+
 /**
  *
  * @author Kain
@@ -46,6 +64,7 @@ public class Laberinto extends JPanel implements KeyListener {
     private int posYenemigoAnterior;
     private int nivelActual=0;
     private boolean todasRecogidas;
+    private String nombreUsuario;
     private Clip clipFondo;
     private Clip clipSalida;
     
@@ -79,11 +98,13 @@ public class Laberinto extends JPanel implements KeyListener {
             JButton recuperarPartidaButton = new JButton("Recuperar Partida");
             stylizeButton(recuperarPartidaButton);
             recuperarPartidaButton.addActionListener(e -> {
-                try {
-                    laberintoPanel.recuperarPartida();
-                    System.out.println("Partida recuperada");
-                } catch (IOException ex) {
-                    ex.printStackTrace();
+            try {
+                laberintoPanel.recuperarPartida();
+                System.out.println("Partida recuperada");
+            }   catch (FileNotFoundException ex) {
+                    Logger.getLogger(Laberinto.class.getName()).log(Level.SEVERE, null, ex);
+                } catch (SQLException ex) {
+                    Logger.getLogger(Laberinto.class.getName()).log(Level.SEVERE, null, ex);
                 }
             });
             
@@ -149,6 +170,8 @@ private static void stylizeButton(JButton button) {
             private void Area1(){
         posX = 0;
         posY = 6;
+        posXenemigo = 6;
+        posYenemigo = 15;
         //Copia del array
         laberinto = new int[][] {
         {1, 1, 0, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 1, 1, 0},
@@ -217,6 +240,8 @@ private void colocarLetrasAleatoriasLab(int[][] laberinto, int cantidadLetras) {
             writer.write(nivelActual + "\n");
             writer.write(posXenemigo + "\n");
             writer.write(posYenemigo + "\n");
+            writer.write(posXenemigoAnterior + "\n");
+            writer.write(posYenemigoAnterior + "\n");
             
             for (int i = 0; i < laberinto.length; i++) {
                 for (int j = 0; j < laberinto[i].length; j++) {
@@ -227,26 +252,104 @@ private void colocarLetrasAleatoriasLab(int[][] laberinto, int cantidadLetras) {
         }
     }
 
-    private void recuperarPartida() throws IOException {
-        try (Scanner scanner = new Scanner(new File("partida.txt"))) {
-            posX = scanner.nextInt();
-            posY = scanner.nextInt();
-            puntuacion = scanner.nextInt();
-            nivelActual = scanner.nextInt();
-            posXenemigo = scanner.nextInt();
-            posYenemigo = scanner.nextInt();
+private void recuperarPartida() throws FileNotFoundException, SQLException {
+    // Solicitar al usuario el idPartida
+    String idPartidaString = JOptionPane.showInputDialog(this, "Ingrese el ID de la partida:", "Recuperar Partida", JOptionPane.QUESTION_MESSAGE);
 
+    // Verificar si el usuario canceló la entrada o ingresó un valor vacío
+    if (idPartidaString == null || idPartidaString.isEmpty()) {
+        JOptionPane.showMessageDialog(this, "No se proporcionó un ID de partida válido. Recuperando la partida local.", "ERROR", JOptionPane.WARNING_MESSAGE);
+        recuperarPartidaLocal();
+        return; // Salir del método si no se proporciona un ID de partida válido
+    }
 
-            for (int i = 0; i < laberinto.length; i++) {
-                for (int j = 0; j < laberinto[i].length; j++) {
-                    laberinto[i][j] = scanner.nextInt();
+    // Convertir el idPartida a entero
+    int idPartida;
+    try {
+        idPartida = Integer.parseInt(idPartidaString);
+    } catch (NumberFormatException e) {
+        JOptionPane.showMessageDialog(this, "ID de partida inválido. Por favor, ingrese un número entero válido. Recuperando la partida local.", "ERROR", JOptionPane.WARNING_MESSAGE);
+        recuperarPartidaLocal();
+        return; // Salir del método si el ID de partida no es un número entero válido
+    }
+
+    // Configurar la conexión a la base de datos
+    String url = "jdbc:mysql://localhost:3306/laberinto";
+    String usuario = "root";
+    String contraseña = "";
+
+    boolean partidaEncontrada = false;
+
+    try (Connection conexion = DriverManager.getConnection(url, usuario, contraseña)) {
+        String consulta = "SELECT posX, posY, puntuacion, nivelActual, posXenemigo, posYenemigo,posXenemigoAnterior,posYenemigoAnterior, nombreUsuario " +
+                          "FROM partidas_guardadas WHERE id = ?";
+        try (PreparedStatement pstmt = conexion.prepareStatement(consulta)) {
+            pstmt.setInt(1, idPartida);
+            try (ResultSet rs = pstmt.executeQuery()) {
+                if (rs.next()) {
+                    // Recuperar datos de la partida desde la base de datos
+                    posX = rs.getInt("posX");
+                    posY = rs.getInt("posY");
+                    puntuacion = rs.getInt("puntuacion");
+                    nivelActual = rs.getInt("nivelActual");
+                    posXenemigo = rs.getInt("posXenemigo");
+                    posYenemigo = rs.getInt("posYenemigo");
+                    posXenemigoAnterior = rs.getInt("posXenemigoAnterior");
+                    posYenemigoAnterior = rs.getInt("posYenemigoAnterior");
+                    nombreUsuario = rs.getString("nombreUsuario");
+                    
+                    partidaEncontrada = true;
                 }
             }
         }
-        repaint();
-        setFocusable(true);
-        requestFocusInWindow();
+    } catch (SQLException e) {
+        JOptionPane.showMessageDialog(this, "Error al recuperar la partida de la base de datos. Recuperando la partida local.\n" + e.getMessage(), "ERROR", JOptionPane.ERROR_MESSAGE);
+        recuperarPartidaLocal();
     }
+    
+    if (!partidaEncontrada) {
+        // Preguntar al usuario si desea cargar la partida local
+        int opcion = JOptionPane.showConfirmDialog(this, "La partida con el ID proporcionado no fue encontrada en la base de datos. ¿Desea cargar la partida local?", "Partida no encontrada", JOptionPane.YES_NO_OPTION);
+        
+        if (opcion == JOptionPane.YES_OPTION) {
+            recuperarPartidaLocal();
+        }
+    }
+
+    // Repintar el componente, obtener el foco y verificar la activación de la casilla especial
+    repaint();
+    setFocusable(true);
+    requestFocusInWindow();
+    verificarActivacionCasillaEspecial();
+}
+
+private void recuperarPartidaLocal() throws FileNotFoundException {
+    try (Scanner scanner = new Scanner(new File("partida.txt"))) {
+        posX = scanner.nextInt();
+        posY = scanner.nextInt();
+        puntuacion = scanner.nextInt();
+        nivelActual = scanner.nextInt();
+        posXenemigo = scanner.nextInt();
+        posYenemigo = scanner.nextInt();
+        posXenemigoAnterior = scanner.nextInt();
+        posYenemigoAnterior = scanner.nextInt();
+        nombreUsuario = scanner.nextLine();
+
+        for (int i = 0; i < laberinto.length; i++) {
+            for (int j = 0; j < laberinto[i].length; j++) {
+                laberinto[i][j] = scanner.nextInt();
+            }
+        }
+            // Repintar el componente, obtener el foco y verificar la activación de la casilla especial
+    repaint();
+    setFocusable(true);
+    requestFocusInWindow();
+    verificarActivacionCasillaEspecial();
+    }
+}
+
+
+
     
 
     public int getPuntuacion() {
@@ -488,6 +591,7 @@ private void musicaSalida() {
         clipSalida = AudioSystem.getClip();
         clipSalida.open(audioInputStream);
         clipSalida.start();
+        clipSalida.loop(Clip.LOOP_CONTINUOUSLY);
 
         FloatControl gainControl = (FloatControl) clipSalida.getControl(FloatControl.Type.MASTER_GAIN);
         //Consigue control del volumen del audio
@@ -519,7 +623,8 @@ private void salirDelLaberinto() {
     } else if (laberinto[posX][posY] == 7) {
         JOptionPane.showMessageDialog(this, "¡Has Ganado el juego!"
         + "\n Puntuación Final: " + puntuacion + "\n Escriba Aquí su nombre (PLACEHOLDER)");  
-        reiniciarPartida();
+        AreaReinicio();
+        nivelActual = 0;
     }
 }
 
@@ -528,9 +633,10 @@ private void salirDelLaberinto() {
      */
     private void reiniciarPartida() {
         puntuacion = 0;
-        AreaReinicio();
         detenerMusicaSalir();
         detenerMusicaFondo();
+        AreaReinicio();
+
     }
 
     @Override
